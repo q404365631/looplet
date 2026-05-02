@@ -33,6 +33,7 @@ from coder_lib_tools import (
     _run,
     classify_bash_command,
     classify_sed_command,
+    classify_view_command,
 )
 
 from looplet.types import ToolContext
@@ -70,6 +71,20 @@ def execute(ctx: ToolContext, *, command: str) -> dict:
                 + sed["recommendation"]
             ),
             "recovery": "edit_file(file_path=..., old_string=..., new_string=...)",
+        }
+
+    # cat/head/tail/less on a source file refusal: route file viewing
+    # through read_file so the file_cache records the read and the
+    # next edit_file can succeed.
+    view = classify_view_command(command)
+    if view["viewing_file"]:
+        return {
+            "error": (
+                f"Refused: `{view['first_token']}` on a source file bypasses "
+                "the file_cache. " + view["recommendation"]
+            ),
+            "first_token": view["first_token"],
+            "recovery": "read_file(file_path=...)",
         }
 
     result = _run(command, workspace)

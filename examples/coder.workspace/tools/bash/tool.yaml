@@ -13,6 +13,7 @@ description: |-
   Refusals (model-actionable, fail-loud):
   - **Destructive commands** are refused: `rm -rf`, `git push --force`, `git reset --hard`, `dd`, `mkfs`, `kill`, `shutdown`. The error names the matched pattern; pick a safer alternative (delete specific files, create a NEW commit, etc.) or ask the user to authorize the action.
   - **`sed -i`** is refused: in-place sed bypasses the file_cache so the next read_file would return stale content. Use `edit_file` for in-place file edits.
+  - **`cat` / `cat -n` / `head` / `tail` / `less` / `more` on a single source file** is refused: viewing files through bash bypasses the file_cache, which then refuses your next `edit_file` because the file "wasn't read" in this session. Use `read_file` to view file contents. (`cat`/`head`/`tail` are still allowed when piping output of another command, e.g. `grep ... | head`.)
   - **`cd` outside the project root** is allowed but produces a warning so you don't lose track of where commands run.
 
   Examples:

@@ -21,7 +21,11 @@ import pytest
 _CODER_DIR = Path(__file__).resolve().parents[1] / "examples" / "coder.workspace"
 sys.path.insert(0, str(_CODER_DIR))
 
-from coder_lib_tools import classify_bash_command, classify_sed_command  # noqa: E402
+from coder_lib_tools import (  # noqa: E402
+    classify_bash_command,
+    classify_sed_command,
+    classify_view_command,
+)
 
 from looplet import workspace_to_preset  # noqa: E402
 from looplet.types import ToolCall  # noqa: E402
@@ -106,6 +110,45 @@ def test_classify_sed_command_detects_in_place(command):
 def test_classify_sed_command_passes_streaming():
     assert not classify_sed_command("sed s/a/b/ foo.py")["in_place_edit"]
     assert not classify_sed_command("cat foo | sed s/a/b/")["in_place_edit"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat src/foo.py",
+        "cat -n src/foo.py",
+        "head -20 src/foo.py",
+        "tail -50 logs/err.log",
+        "less README.md",
+        "cat foo.py bar.py",
+    ],
+)
+def test_classify_view_command_detects_file_view(command):
+    res = classify_view_command(command)
+    assert res["viewing_file"], f"expected file-view: {command}"
+    assert "read_file" in res["recommendation"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "grep TODO src/ | head -20",
+        "ls -la | head",
+        "cat /proc/cpuinfo",
+        "echo hi",
+        "pytest",
+    ],
+)
+def test_classify_view_command_passes_pipes_and_virtual(command):
+    assert not classify_view_command(command)["viewing_file"], command
+
+
+def test_bash_tool_refuses_cat_source(preset):
+    r = preset.tools.dispatch(ToolCall(tool="bash", args={"command": "cat -n foo.py"}))
+    assert r.data is not None
+    assert "Refused" in r.data.get("error", "")
+    assert "read_file" in r.data.get("error", "")
+    assert r.data.get("first_token") == "cat"
 
 
 def test_bash_tool_refuses_destructive(preset):

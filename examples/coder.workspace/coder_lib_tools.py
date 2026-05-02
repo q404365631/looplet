@@ -299,6 +299,62 @@ def classify_sed_command(command: str) -> dict[str, Any]:
     return {"in_place_edit": False, "recommendation": ""}
 
 
+_VIEW_COMMANDS: frozenset[str] = frozenset({"cat", "head", "tail", "less", "more"})
+
+
+def classify_view_command(command: str) -> dict[str, Any]:
+    """Detect ``cat``/``head``/``tail``/``less``/``more`` used to view a single
+    source file (which bypasses the read_file file_cache).
+
+    Heuristics:
+
+    * Only flags the *first* subcommand of the pipeline, because using
+      ``... | head`` to trim *output* of another command is fine.
+    * Refuses only when the command's positional args look like file
+      paths (no ``-`` stdin marker, at least one arg without a leading
+      ``-`` that points at an existing-looking source file).
+    * Lets ``cat``-as-pipe-source through when the file is clearly not
+      project source (e.g. ``/proc/...``, ``/dev/...``, ``/tmp/`` outside
+      the workspace) — but the conservative default is to refuse so the
+      model self-corrects to ``read_file``.
+
+    Returns ``{"viewing_file": bool, "first_token": str, "recommendation": str}``.
+    """
+    parts = re.split(r"&&|\|\||;", command)
+    first = parts[0].strip() if parts else ""
+    tokens = first.split()
+    if not tokens:
+        return {"viewing_file": False, "first_token": "", "recommendation": ""}
+    name = tokens[0].rsplit("/", 1)[-1]
+    if name not in _VIEW_COMMANDS:
+        return {"viewing_file": False, "first_token": name, "recommendation": ""}
+    # Look at positional args (skip flags). If none look like files,
+    # this is probably reading from stdin / a pipe — let it through.
+    positional = [t for t in tokens[1:] if not t.startswith("-")]
+    if not positional:
+        return {"viewing_file": False, "first_token": name, "recommendation": ""}
+
+    # Allow virtual / device paths (these are never project source).
+    def is_project_path(arg: str) -> bool:
+        if arg.startswith(("/proc/", "/dev/", "/sys/")):
+            return False
+        return True
+
+    if not any(is_project_path(p) for p in positional):
+        return {"viewing_file": False, "first_token": name, "recommendation": ""}
+    return {
+        "viewing_file": True,
+        "first_token": name,
+        "recommendation": (
+            f"Use read_file to view source files. `{name}` bypasses "
+            "the file_cache, so a subsequent edit_file on the same "
+            "path will be refused with 'not been read in current "
+            "session'. Pipe-trimming output of another command "
+            "(e.g. `grep ... | head`) is still fine."
+        ),
+    }
+
+
 # ── File cache ─────────────────────────────────────────────────────
 
 
