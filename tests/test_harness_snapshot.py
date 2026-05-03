@@ -13,6 +13,21 @@ def test_serialize_harness_defaults_to_schema_and_empty_extra():
     assert serialize_harness() == {"schema_version": 1, "extra": {}}
 
 
+def test_serialize_harness_omits_missing_and_none_config_fields():
+    class PartialConfig:
+        system_prompt = None
+        max_steps = 3
+        temperature = None
+
+    snap = serialize_harness(config=PartialConfig())
+
+    assert snap == {
+        "schema_version": 1,
+        "extra": {},
+        "max_steps": 3,
+    }
+
+
 def test_serialize_harness_captures_config_and_component_names():
     class FakeConfig:
         system_prompt = "You are careful."
