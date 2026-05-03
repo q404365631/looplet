@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from looplet import (
+    Allow,
     BaseToolRegistry,
     Block,
     Continue,
@@ -11,8 +14,9 @@ from looplet import (
     Stop,
     composable_loop,
 )
+from looplet.async_loop import async_composable_loop
 from looplet.events import EventPayload
-from looplet.testing import MockLLMBackend
+from looplet.testing import AsyncMockLLMBackend, MockLLMBackend
 from looplet.tools import ToolSpec
 
 
@@ -58,6 +62,17 @@ def _run(responses: list[str], hooks: list[object]) -> None:
     )
 
 
+async def _run_async(responses: list[str], hooks: list[object]) -> None:
+    async for _ in async_composable_loop(
+        llm=AsyncMockLLMBackend(responses=responses),
+        tools=_tools(),
+        state=DefaultState(max_steps=5),
+        hooks=hooks,
+        config=LoopConfig(max_steps=5),
+    ):
+        pass
+
+
 def test_hook_decision_events_include_slot_hook_name_and_decision_dict() -> None:
     class DecisionHook:
         def on_event(self, payload: EventPayload):
@@ -71,6 +86,11 @@ def test_hook_decision_events_include_slot_hook_name_and_decision_dict() -> None
         def pre_dispatch(self, state, session_log, tool_call, step_num):
             if tool_call.tool == "add":
                 return InjectContext("test")
+            return None
+
+        def check_permission(self, tool_call, state):
+            if tool_call.tool == "add":
+                return Allow()
             return None
 
         def post_dispatch(self, state, session_log, tool_call, tool_result, step_num):
@@ -108,6 +128,7 @@ def test_hook_decision_events_include_slot_hook_name_and_decision_dict() -> None
         "on_event",
         "pre_prompt",
         "pre_dispatch",
+        "check_permission",
         "post_dispatch",
         "check_done",
         "should_stop",
@@ -118,6 +139,7 @@ def test_hook_decision_events_include_slot_hook_name_and_decision_dict() -> None
     assert by_slot["should_stop"][0].extra["decision"]["stop"] == "test"
     assert by_slot["pre_prompt"][0].extra["decision"]["additional_context"] == "test"
     assert by_slot["pre_dispatch"][0].extra["decision"]["additional_context"] == "test"
+    assert by_slot["check_permission"][0].extra["decision"]["permission"] == "allow"
     assert by_slot["post_dispatch"][0].extra["decision"]["additional_context"] == "test"
 
     on_event_payload = by_slot["on_event"][0]
@@ -158,3 +180,27 @@ def test_no_hook_decision_events_for_none_or_noop_decisions() -> None:
     )
 
     assert recorder.payloads == []
+
+
+@pytest.mark.asyncio
+async def test_async_loop_hook_decision_events_for_normalized_slots() -> None:
+    class DecisionHook:
+        def check_done(self, state, session_log, context, step_num):
+            return Block("async-block")
+
+        def should_stop(self, state, step_num, new_entities):
+            return Stop("async-stop")
+
+    recorder = _HookDecisionRecorder()
+
+    await _run_async(
+        ['{"tool":"done","args":{"answer":"early"},"reasoning":""}'],
+        [recorder, DecisionHook()],
+    )
+
+    by_slot = {payload.hook_slot: payload for payload in recorder.payloads}
+
+    assert by_slot["check_done"].hook_name == "DecisionHook"
+    assert by_slot["check_done"].extra["decision"]["block"] == "async-block"
+    assert by_slot["should_stop"].hook_name == "DecisionHook"
+    assert by_slot["should_stop"].extra["decision"]["stop"] == "async-stop"

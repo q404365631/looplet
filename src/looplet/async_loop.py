@@ -46,6 +46,7 @@ from looplet.checkpoint import resume_loop_state as _resume_loop_state
 from looplet.loop import (
     LoopConfig,
     _build_tool_ctx,
+    _emit_hook_decision_event,
     _intercept_tool_calls,
     _run_post_dispatch_hooks,
     emit_event,
@@ -704,6 +705,17 @@ async def async_composable_loop(
 
                     w = hook.check_done(state, session_log, context, step_num)
                     _decision = normalize_hook_return(w, slot="check_done")
+                    if _decision is not None:
+                        _emit_hook_decision_event(
+                            hooks,
+                            decision=_decision,
+                            hook_slot="check_done",
+                            hook_name=type(hook).__name__,
+                            step_num=cur_step,
+                            state=state,
+                            session_log=session_log,
+                            context=context,
+                        )
                     if _decision is not None and _decision.is_block():
                         gate_warning = _decision.block or "blocked by hook"
                         break
@@ -765,6 +777,17 @@ async def async_composable_loop(
 
                 _raw = hook.should_stop(state, step_num, 0)
                 _decision = normalize_hook_return(_raw, slot="should_stop")
+                if _decision is not None:
+                    _emit_hook_decision_event(
+                        hooks,
+                        decision=_decision,
+                        hook_slot="should_stop",
+                        hook_name=type(hook).__name__,
+                        step_num=step_num,
+                        state=state,
+                        session_log=session_log,
+                        context=context,
+                    )
                 if _decision is not None and _decision.is_stop():
                     stop_reason = _decision.stop or "hook_requested_stop"
                     done = True
