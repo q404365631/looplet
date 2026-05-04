@@ -58,6 +58,7 @@ class StaticMemorySource:
     text: str
 
     def load(self, state: Any) -> str:  # noqa: ARG002 - state unused
+        """Return the static text, ignoring state."""
         return self.text
 
 
@@ -72,6 +73,7 @@ class CallableMemorySource:
     fn: Callable[[Any], str | None]
 
     def load(self, state: Any) -> str | None:
+        """Invoke the wrapped callable with the current state."""
         return self.fn(state)
 
 
